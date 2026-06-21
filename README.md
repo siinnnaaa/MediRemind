@@ -74,13 +74,17 @@
 | Micro SD Card (optional) | 1 | For storing calibration data |
 
 ### Wiring Diagram
-<p align="center">
-  <img src="docs/wiring.png" alt="Wiring Diagram" width="500">
-  <br>
-  <em>Complete wiring diagram for your reference</em>
-</p>
+<img width="1274" height="623" alt="image" src="https://github.com/user-attachments/assets/285c5a97-408d-4473-9f3a-8c3800d725e8" />
+<div align="left">
+  <strong>⚠️ Caution:</strong>
+</div>
 
----
+> The wiring diagram shown below is for **visual representation only**. The physical connections in your actual setup may differ depending on your specific hardware configuration.
+
+
+<blockquote style="border-left: 4px solid #ffc107; background-color: #fff8e1; padding: 10px 15px; margin: 10px 0;">
+  <strong>📌 NOTE:</strong> The image above is a schematic illustration created to give you a general idea of how the components are connected. However, if you are using a <strong>2.8" TFT Touch Shield</strong>, it is designed to be stacked directly onto the Arduino Mega (or Uno) via the GPIO headers, so there is <strong>no separate wiring required</strong> for the display itself!
+</blockquote>
 
 ## 📚 Required Libraries
 
