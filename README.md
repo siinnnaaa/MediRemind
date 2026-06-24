@@ -103,5 +103,4 @@ Install these libraries via Arduino Library Manager or manually:
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/your-username/medireminder.git
-cd medireminder
+git clone https://github.com/siinnnaaa/medireminder.git cd medireminder
