@@ -18,28 +18,10 @@
   <em>Watch MediReminder in action!</em>
 </p>
 
-> **📹 Video Demo:
+> **📹
 
 
 https://github.com/user-attachments/assets/fb996bd7-2a97-43c6-b0e2-5a1661329b5b
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 ---
 
