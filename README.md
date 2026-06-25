@@ -1,9 +1,4 @@
 
-
-https://github.com/user-attachments/assets/bfc6f895-5c81-4ef6-aa44-5c7e3ad92482
-
-
-
 # 💊 MediReminder – Your Smart Pill Manager
 
 [![Arduino](https://img.shields.io/badge/Arduino-UNO-blue.svg)](https://www.arduino.cc/)
@@ -24,8 +19,7 @@ https://github.com/user-attachments/assets/bfc6f895-5c81-4ef6-aa44-5c7e3ad92482
 </p>
 
 > **📹 Video Demo:
-https://github.com/user-attachments/assets/40832a20-1ec0-444d-8381-2e4443cb38c6
-
+https://github.com/user-attachments/assets/bfc6f895-5c81-4ef6-aa44-5c7e3ad92482
 
 ---
 
