@@ -19,7 +19,11 @@
 </p>
 
 > **📹 Video Demo:
-https://github.com/user-attachments/assets/bfc6f895-5c81-4ef6-aa44-5c7e3ad92482
+
+
+https://github.com/user-attachments/assets/fb996bd7-2a97-43c6-b0e2-5a1661329b5b
+
+
 
 
 
