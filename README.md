@@ -44,23 +44,24 @@ https://github.com/user-attachments/assets/fb996bd7-2a97-43c6-b0e2-5a1661329b5b
 
 ### Main Dashboard
 <p align="center">
-  <img src="docs/screenshots/main_screen.jpg" alt="Main Screen" width="300">
+   <img width="422" height="324" alt="5906761655272541935 (1)" src="https://github.com/user-attachments/assets/fe775d42-b44c-478c-a66d-57967ff06f94" />
   <br>
-  <em>The main dashboard showing all medications and their status</em>
+  <em>The main dashboard showing all medications and their status</em
 </p>
 
 ### Medication Settings
 <p align="center">
-  <img src="docs/screenshots/med_screen.jpg" alt="Medication Screen" width="300">
-  <img src="docs/screenshots/keyboard.jpg" alt="Keyboard" width="300">
+  <img width="422" height="324" alt="5906761655272541936" src="https://github.com/user-attachments/assets/e10c08b0-a153-467c-a703-abac1948e185" />
+  <img width="422" height="324" alt="5906761655272541937" src="https://github.com/user-attachments/assets/14093a92-685d-4671-bb49-e10a8b025b9d" />
   <br>
   <em>Configure medication name and schedule with the built-in keyboard</em>
 </p>
 
 ### Alarm & Schedule
 <p align="center">
-  <img src="docs/screenshots/alarm.jpg" alt="Alarm Screen" width="300">
-  <img src="docs/screenshots/schedule.jpg" alt="Schedule Screen" width="300">
+  <img width="422" height="324" alt="5906761655272541939" src="https://github.com/user-attachments/assets/74a77833-72e7-496e-9e18-cd13dcb3350e" />
+  <img width="422" height="324" alt="5906761655272541938" src="https://github.com/user-attachments/assets/f632d59d-841d-4695-a5f7-ca7ebbc6c337" />
+
   <br>
   <em>Alarm notification and dose scheduling interface</em>
 </p>
