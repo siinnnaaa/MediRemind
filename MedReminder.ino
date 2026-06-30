@@ -5,11 +5,13 @@
 #include <Wire.h>
 #include <RTClib.h>
 
+// Touchscreen hardware pin definitions
 #define YP A3
 #define XM A2
 #define YM 9
 #define XP 8
 
+// RGB565 Color definitions
 #define BLACK   0x0000
 #define RED     0xF800
 #define GREEN   0x07E0
@@ -22,60 +24,63 @@
 #define VIOLET  0xA81F
 #define ORANGE  0xFBE0
 
+// Touch pressure thresholds
 #define MINPRESSURE 10
 #define MAXPRESSURE 1200
 
+// Hardware Pin Configuration
 #define BUZZER_PIN 53
 
-// کالیبراسیون تأییدشده
+// Verified Touchscreen Calibration Values
 #define TS_MINX 181
 #define TS_MAXX 938
 #define TS_MINY 149
 #define TS_MAXY 954
 
-// EEPROM: یک بایت magic برای نسخه‌بندی + آرایه‌ی meds
+// EEPROM Storage Map
 #define EEPROM_MAGIC_ADDR 0
-#define EEPROM_MAGIC_VAL  0xC4   // اگه struct عوض شد، این مقدار رو تغییر بده تا ریست بشه
+#define EEPROM_MAGIC_VAL  0xC4   // Change this value if the Medicine struct changes to force memory reset
 #define EEPROM_MEDS_ADDR  4
 
+// Hardware Interface Instances
 MCUFRIEND_kbv tft;
 TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 RTC_DS3231 rtc;
 
-// پالت رنگ داروها (RGB565)
+// Color palette for medicine categories (RGB565 format)
 const uint16_t medColors[6] = { RED, GREEN, BLUE, YELLOW, MAGENTA, ORANGE };
 #define COLOR_COUNT 6
 
-// ساختار داده‌ی دارو
+// Core Data Structure for Medicine Profiles
 struct Medicine {
-  bool active;
-  char name[12];
-  uint8_t colorIndex;
-  uint8_t doseCount;
-  char times[3][6];
-  uint8_t takenDoses;
+  bool active;            // Indicates if the slot is occupied
+  char name[12];          // Medicine name string (max 11 chars + null terminator)
+  uint8_t colorIndex;     // Associated theme color index
+  uint8_t doseCount;      // Total scheduled doses per day (1 to 3)
+  char times[3][6];       // Stored reminder times in HH:MM format
+  uint8_t takenDoses;     // Tracked taken doses for the current day
 };
 
 #define MED_COUNT 5
 Medicine meds[MED_COUNT];
 
+// GUI Navigation States
 enum Screen {
   SCREEN_MAIN,
   SCREEN_MED,
   SCREEN_KEYBOARD,
   SCREEN_SCHEDULE,
   SCREEN_ALARM,  
-  SCREEN_TIME_SET    // جدید
+  SCREEN_TIME_SET
 };
 
 Screen currentScreen = SCREEN_MAIN;
 int    selectedMed   = 0;
-int tempHH = 0, tempMM = 0; 
-int scheduleStep = 0;
-int schedJY = 0, schedJM = 0, schedJD = 0;  // <-- این خط را اضافه کن
+int tempHH = 0, tempMM = 0; // Temp variables for system clock configuration
+int scheduleStep = 0;       // Keeps track of the current step during scheduling setup
+int schedJY = 0, schedJM = 0, schedJD = 0;  // Stored Jalali calendar coordinates
 
-
-// کیبورد
+// On-Screen Virtual Keyboard Layout Matrix
 bool   kbCaps = false;
 String kbInput = "";
 
@@ -85,21 +90,22 @@ String kbSymbol[3][10] = {
   {"Z","X","C","V","B","N","M",".","<",""}
 };
 
-// آلارم
-int    alarmMed     = -1;   // کدام دارو آلارم دارد
-int    alarmTimeIdx = -1;   // کدام دوز
-int    lastTrigMin  = -1;   // جلوگیری از تکرار در همان دقیقه
-uint8_t lastResetDay = 0;   // ریست شمارنده روزانه
-int8_t lastClockMin = -1;   // ضد چشمک ساعت کوچک
+// Alarm Tracking and State Registers
+int    alarmMed     = -1;   // Active medication index causing the alarm trigger
+int    alarmTimeIdx = -1;   // Specific dose index of the active medication
+int    lastTrigMin  = -1;   // Debounce register to prevent multi-triggering within the same minute
+uint8_t lastResetDay = 0;   // Register to execute daily dosage counter resets
+int8_t lastClockMin = -1;   // Anti-flicker state register for the top corner mini-clock
 
-// ملودی غیرمسدودکننده
+// Non-blocking Alarm Buzzer Melody Sequence
 const int MEL_NOTE[] = {659, 587, 523, 587, 659, 659, 659};
 const int MEL_DUR[]  = {200, 200, 200, 200, 200, 200, 400};
 #define MEL_LEN 7
 uint8_t       melStep  = 0;
 unsigned long melTimer = 0;
 
-// ==================== تاچ ====================
+// ==================== TOUCHSCREEN SUBSYSTEM ====================
+// Reads touchscreen coordinates and maps them directly to display pixels
 bool getTouchXY(int &tx, int &ty) {
   TSPoint p = ts.getPoint();
   pinMode(XM, OUTPUT);
@@ -110,16 +116,18 @@ bool getTouchXY(int &tx, int &ty) {
   return true;
 }
 
-// ==================== EEPROM ====================
+// ==================== EEPROM STORAGE MANAGEMENT ====================
+// Commits current data arrays down into the microcontroller's persistent EEPROM
 void saveMeds() {
   EEPROM.update(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VAL);
   EEPROM.put(EEPROM_MEDS_ADDR, meds);
 }
 
+// Restores medication profiles from persistent storage or formats memory on first run
 void loadMeds() {
   uint8_t magic = EEPROM.read(EEPROM_MAGIC_ADDR);
   if (magic != EEPROM_MAGIC_VAL) {
-    // اولین اجرا یا تغییر ساختار -> ریست
+    // Factory reset routine triggered on first boot or structural firmware updates
     for (int i = 0; i < MED_COUNT; i++) {
       memset(&meds[i], 0, sizeof(Medicine));
       strcpy(meds[i].name, "---");
@@ -128,7 +136,10 @@ void loadMeds() {
     saveMeds();
     return;
   }
+  
   EEPROM.get(EEPROM_MEDS_ADDR, meds);
+  
+  // Data sanity check and error mitigation loop
   for (int i = 0; i < MED_COUNT; i++) {
     if (meds[i].name[0] < 32 || meds[i].name[0] > 126) {
       memset(&meds[i], 0, sizeof(Medicine));
@@ -137,10 +148,13 @@ void loadMeds() {
     if (meds[i].colorIndex >= COLOR_COUNT) meds[i].colorIndex = 0;
   }
 }
-// ==================== کمکی زمان ====================
+
+// ==================== TIME PARSING UTILITIES ====================
 int parseHH(const char* t) { return (t[0]-'0')*10 + (t[1]-'0'); }
 int parseMM(const char* t) { return (t[3]-'0')*10 + (t[4]-'0'); }
-// ==================== تبدیل میلادی به شمسی ====================
+
+// ==================== CALENDAR CONVERSION (GREGORIAN TO JALALI) ====================
+// Mathematical conversion algorithm for rendering accurate local Jalali dates
 void gregorianToJalali(int gy, int gm, int gd, int &jy, int &jm, int &jd) {
   static const int g_d_m[] = {0,31,59,90,120,151,181,212,243,273,304,334};
   int gy2 = (gm > 2) ? (gy + 1) : gy;
@@ -162,9 +176,11 @@ void gregorianToJalali(int gy, int gm, int gd, int &jy, int &jm, int &jd) {
     jd = 1 + ((days - 186) % 30);
   }
 }
-// ==================== تاریخ شمسی صفحه اصلی ====================
-int8_t lastClockDay = -1;  // ضد چشمک تاریخ
 
+// ==================== MAIN SCREEN INTERFACE RENDERING ====================
+int8_t lastClockDay = -1;  // Anti-flicker tracker for the date element
+
+// Renders the processed Jalali date to the top status bar area
 void drawMiniDate(bool force) {
   DateTime now = rtc.now();
   if (!force && now.day() == lastClockDay) return;
@@ -173,7 +189,7 @@ void drawMiniDate(bool force) {
   int jy, jm, jd;
   gregorianToJalali(now.year(), now.month(), now.day(), jy, jm, jd);
 
-  tft.fillRect(190, 8, 60, 12, BLACK);   // زیر/کنار ساعت
+  tft.fillRect(190, 8, 60, 12, BLACK);   // Clear sub-region near clock area
   tft.setTextColor(CYAN);
   tft.setTextSize(1);
   tft.setCursor(190, 8);
@@ -184,9 +200,7 @@ void drawMiniDate(bool force) {
   tft.print(jd);
 }
 
-
-
-// ==================== ساعت کوچک صفحه اصلی ====================
+// Renders the dynamic systemic digital clock module
 void drawMiniClock(bool force) {
   DateTime now = rtc.now();
   if (!force && now.minute() == lastClockMin) return;
@@ -203,7 +217,7 @@ void drawMiniClock(bool force) {
   tft.print(now.minute());
 }
 
-// ==================== صفحه‌ی اصلی ====================
+// Renders the overall main layout dashboard including all medication cards
 void drawMainScreen() {
   tft.fillScreen(BLACK);
   tft.setTextColor(WHITE);
@@ -215,7 +229,7 @@ void drawMainScreen() {
     int cy = 30 + i * 40;
     tft.drawRoundRect(2, cy, 316, 38, 4, CYAN);
 
-    // مربع رنگ دارو
+    // Render the identifying indicator block if profile is active
     if (meds[i].active)
       tft.fillRect(300, cy + 4, 12, 12, medColors[meds[i].colorIndex]);
 
@@ -228,7 +242,7 @@ void drawMainScreen() {
     if (meds[i].active) {
       tft.print(meds[i].name);
 
-      // Taken در خط اول، سمت راست
+      // Render dosage ratio text (Taken/Total) in upper right segment of card
       tft.setTextSize(1);
       tft.setTextColor(WHITE);
       tft.setCursor(210, cy + 4);
@@ -237,7 +251,7 @@ void drawMainScreen() {
       tft.print("/");
       tft.print(meds[i].doseCount);
 
-      // زمان‌ها در خط دوم
+      // Display scheduled alarms sequence on the lower line
       tft.setTextSize(1);
       tft.setTextColor(WHITE);
       tft.setCursor(6, cy + 22);
@@ -246,7 +260,7 @@ void drawMainScreen() {
         if (t < meds[i].doseCount - 1) tft.print(" ");
       }
 
-      // نوار پیشرفت در خط دوم سمت راست
+      // Render graphical progress bar components tracking taken ratios
       int barW = 110;
       int barX = 200;
       int filled = (meds[i].doseCount > 0)
@@ -262,11 +276,12 @@ void drawMainScreen() {
   drawMiniDate(true);
 }
 
+// Checks user input vectors on the primary menu interface
 void handleMainScreen() {
   int tx, ty;
   if (!getTouchXY(tx, ty)) return;
 
-  // لمس ساعت کوچک گوشه -> تنظیم ساعت
+  // Top-right corner bounding box interception -> Time Config Screen
   if (tx > 250 && ty < 25) {
     DateTime now = rtc.now();
     tempHH = now.hour();
@@ -276,6 +291,7 @@ void handleMainScreen() {
     return;
   }
 
+  // Iterate row card collision zones to catch selection actions
   for (int i = 0; i < MED_COUNT; i++) {
     int cy = 30 + i * 40;
     if (tx > 2 && tx < 318 && ty > cy && ty < cy + 38) {
@@ -287,12 +303,13 @@ void handleMainScreen() {
   }
 }
 
-// ==================== انتخاب رنگ ====================
+// ==================== COLOR SELECTOR WIDGET ====================
 #define SW_Y    165
 #define SW_SIZE 45
 #define SW_GAP  5
 #define SW_X0   10
 
+// Draws the horizontal layout of selectable color nodes
 void drawColorPicker(uint8_t sel) {
   tft.setTextSize(2);
   tft.setTextColor(WHITE);
@@ -307,6 +324,7 @@ void drawColorPicker(uint8_t sel) {
   }
 }
 
+// Maps input coordinate grids back to the corresponding color array index
 int hitColorPicker(int x, int y) {
   if (y < SW_Y || y > SW_Y + SW_SIZE) return -1;
   for (uint8_t i = 0; i < COLOR_COUNT; i++) {
@@ -316,7 +334,8 @@ int hitColorPicker(int x, int y) {
   return -1;
 }
 
-// ==================== صفحه‌ی دارو ====================
+// ==================== MEDICATION INTERFACE MANAGMENT ====================
+// Generates the control center menu layout for a chosen item row
 void drawMedScreen() {
   tft.fillScreen(BLACK);
   tft.setTextSize(2);
@@ -345,11 +364,12 @@ void drawMedScreen() {
   drawColorPicker(meds[selectedMed].colorIndex);
 }
 
+// Directs functional touch logic mapping for the specific medicine settings panel
 void handleMedScreen() {
   int tx, ty;
   if (!getTouchXY(tx, ty)) return;
 
-  // انتخاب رنگ
+  // Intercept operations targeted at color picking zones
   int ci = hitColorPicker(tx, ty);
   if (ci != -1) {
     meds[selectedMed].colorIndex = ci;
@@ -360,27 +380,33 @@ void handleMedScreen() {
   }
 
   if (tx > 10 && tx < 150 && ty > 40 && ty < 85) {
+    // "Set Name" processing initiation
     kbInput = "";
     kbCaps  = true;
     currentScreen = SCREEN_KEYBOARD;
     drawKeyboard();
   } else if (tx > 170 && tx < 310 && ty > 40 && ty < 85) {
+    // "Schedule" setup initialization
     DateTime now = rtc.now();
-    gregorianToJalali(now.year(), now.month(), now.day(), schedJY, schedJM, schedJD);  // <-- جدید
+    gregorianToJalali(now.year(), now.month(), now.day(), schedJY, schedJM, schedJD);
     currentScreen = SCREEN_SCHEDULE;
     drawScheduleScreen();
   } else if (tx > 10 && tx < 150 && ty > 100 && ty < 145) {
+    // Profile erasure execution block
     memset(&meds[selectedMed], 0, sizeof(Medicine));
     strcpy(meds[selectedMed].name, "---");
     saveMeds();
     currentScreen = SCREEN_MAIN;
     drawMainScreen();
   } else if (tx > 170 && tx < 310 && ty > 100 && ty < 145) {
+    // Standard back escape route processing
     currentScreen = SCREEN_MAIN;
     drawMainScreen();
   }
 }
-// ==================== کیبورد ====================
+
+// ==================== VIRTUAL KEYBOARD SUBSYSTEM ====================
+// Builds graphic presentation map layouts for typing interfaces
 void drawKeyboard() {
   tft.fillScreen(BLACK);
   tft.drawRect(0, 0, 320, 45, WHITE);
@@ -428,6 +454,7 @@ void drawKeyboard() {
   tft.setCursor(210, 215); tft.print("Cancel");
 }
 
+// Localized update mechanism providing isolated text preview box refreshes
 void kbRefreshText() {
   tft.fillRect(0, 0, 320, 45, BLACK);
   tft.drawRect(0, 0, 320, 45, WHITE);
@@ -435,6 +462,7 @@ void kbRefreshText() {
   tft.setCursor(4, 12); tft.print(kbInput);
 }
 
+// Interprets incoming coordinates map inputs directly across alpha key matrices
 void handleKeyboard() {
   int tx, ty;
   if (!getTouchXY(tx, ty)) return;
@@ -456,18 +484,21 @@ void handleKeyboard() {
     }
   }
 
+  // Intercept Spacebar element coordinates
   if (ty >= 170 && ty < 205 && tx < 193) {
     if (kbInput.length() < 11) { kbInput += " "; kbRefreshText(); }
     return;
   }
+  // Intercept Backspace element coordinates
   if (ty >= 170 && ty < 205 && tx >= 193) {
     if (kbInput.length() > 0) { kbInput.remove(kbInput.length()-1); kbRefreshText(); }
     return;
   }
 
+  // Handle systemic operations processing row (Caps, OK, Cancel)
   if (ty >= 208) {
-    if (tx < 98) { kbCaps = !kbCaps; drawKeyboard(); return; }
-    if (tx < 195) {
+    if (tx < 98) { kbCaps = !kbCaps; drawKeyboard(); return; } // Shift character mappings state
+    if (tx < 195) { // OK operation branch execution
       if (kbInput.length() > 0) {
         kbInput.toCharArray(meds[selectedMed].name, 12);
         meds[selectedMed].active = true;
@@ -477,19 +508,22 @@ void handleKeyboard() {
       drawMedScreen();
       return;
     }
+    // Cancel operation handling fallback
     currentScreen = SCREEN_MED;
     drawMedScreen();
     return;
   }
 }
-// ==================== صفحه‌ی زمان‌بندی ====================
 
+// ==================== SCHEDULE PROFILER SCREEN ====================
+// Renders user flow control elements related to intake configuration metrics
 void drawScheduleScreen() {
   tft.fillScreen(BLACK);
   tft.setTextSize(2);
   tft.setTextColor(WHITE);
 
   if (scheduleStep == 0) {
+    // Step 0: Define total daily dosage quantity benchmarks
     tft.setCursor(20, 10);
     tft.print("Doses per day?");
     tft.setTextSize(1);
@@ -501,7 +535,7 @@ void drawScheduleScreen() {
     tft.print(schedJM); tft.print('/');
     if (schedJD < 10) tft.print('0');
     tft.print(schedJD);
-    tft.setTextSize(2);   // برگرداندن سایز
+    tft.setTextSize(2);   // Reset text scale bounds back up
 
     for (int i = 1; i <= 3; i++) {
       tft.fillRoundRect(20 + (i-1)*100, 60, 80, 60, 6, BLUE);
@@ -512,6 +546,7 @@ void drawScheduleScreen() {
     tft.setTextSize(2); tft.setTextColor(WHITE);
     tft.setCursor(125, 183); tft.print("< Back");
   } else {
+    // Step > 0: Assign execution times (HH:MM) to each numbered dosage instance
     tft.setCursor(10, 5);
     tft.print("Dose "); tft.print(scheduleStep); tft.print(" time (HH:MM):");
     tft.drawRect(10, 35, 200, 35, WHITE);
@@ -538,6 +573,7 @@ void drawScheduleScreen() {
   }
 }
 
+// Contextually manages local input buffer string modifications
 void schRefreshText() {
   tft.fillRect(10, 35, 200, 35, BLACK);
   tft.drawRect(10, 35, 200, 35, WHITE);
@@ -545,11 +581,13 @@ void schRefreshText() {
   tft.setCursor(15, 46); tft.print(kbInput);
 }
 
+// Parses matrix selections across scheduling initialization wizards
 void handleScheduleScreen() {
   int tx, ty;
   if (!getTouchXY(tx, ty)) return;
 
   if (scheduleStep == 0) {
+    // Intercept quantity selection matrices
     if (ty > 60 && ty < 120) {
       for (int i = 1; i <= 3; i++) {
         if (tx > 20+(i-1)*100 && tx < 100+(i-1)*100) {
@@ -561,6 +599,7 @@ void handleScheduleScreen() {
         }
       }
     }
+    // Capture cancel-back escape triggers
     if (ty > 170 && ty < 210 && tx > 100 && tx < 220) {
       scheduleStep = 0;
       currentScreen = SCREEN_MED;
@@ -569,6 +608,7 @@ void handleScheduleScreen() {
     return;
   }
 
+  // Route numeric input keys bounding configurations
   if (ty >= 80 && ty < 180) {
     int nums[] = {1,2,3,4,5,6,7,8,9,0};
     int row = (ty - 80) / 50;
@@ -580,12 +620,16 @@ void handleScheduleScreen() {
     return;
   }
 
+  // Bottom contextual row control block processing zone
   if (ty >= 180) {
     if (tx < 60) {
+      // Append delimiter char block loop
       if (kbInput.length() < 5 && kbInput.indexOf(':') < 0) { kbInput += ":"; schRefreshText(); }
     } else if (tx < 155) {
+      // Execute inner variable clear action
       if (kbInput.length() > 0) { kbInput.remove(kbInput.length()-1); schRefreshText(); }
-        } else if (tx < 225) {
+    } else if (tx < 225) {
+      // Validate chronological integrity properties
       if (kbInput.length() == 5 && kbInput[2] == ':') {
         int hh = (kbInput[0]-'0')*10 + (kbInput[1]-'0');
         int mm = (kbInput[3]-'0')*10 + (kbInput[4]-'0');
@@ -598,7 +642,7 @@ void handleScheduleScreen() {
             currentScreen = SCREEN_MED; drawMedScreen();
           }
         } else {
-          // زمان نامعتبر
+          // Render error layout if chronological attributes bounds fail validation
           tft.fillRect(10, 35, 200, 35, BLACK);
           tft.drawRect(10, 35, 200, 35, RED);
           tft.setTextSize(2); tft.setTextColor(RED);
@@ -609,16 +653,17 @@ void handleScheduleScreen() {
         }
       }
     } else {
-      // tx >= 225  => Cancel
+      // tx >= 225 => Handle configuration termination escape
       scheduleStep = 0; kbInput = "";
       currentScreen = SCREEN_MED; drawMedScreen();
     }
-  }   // <-- بستن if (ty >= 180)
-}     // <-- بستن خود تابع handleScheduleScreen
+  } // End of if (ty >= 180)
+} // End of handleScheduleScreen
 
-// ==================== ملودی بازر ====================
+// ==================== AUDIO ANNOUNCEMENT SUBSYSTEM ====================
 void resetMelody() { melStep = 0; melTimer = 0; noTone(BUZZER_PIN); }
 
+// Drives synchronous step indexing across tone frequencies asynchronously
 void updateMelody() {
   unsigned long nowMs = millis();
   if (nowMs - melTimer >= (unsigned long)MEL_DUR[melStep]) {
@@ -629,12 +674,13 @@ void updateMelody() {
   }
 }
 
-// ==================== صفحه‌ی آلارم ====================
+// ==================== HIGH-PRIORITY ALARM INTERFACE ====================
 #define OK_X 100
 #define OK_Y 180
 #define OK_W 120
 #define OK_H 50
 
+// Overwrites display map grids with full-frame emergency alert designs
 void drawAlarmScreen() {
   uint16_t c = medColors[meds[alarmMed].colorIndex];
   tft.fillScreen(BLACK);
@@ -657,6 +703,7 @@ void drawAlarmScreen() {
   resetMelody();
 }
 
+// Processes interactive user responses confirming medication intake
 void handleAlarm() {
   updateMelody();
   int tx, ty;
@@ -674,17 +721,19 @@ void handleAlarm() {
   }
 }
 
-// ==================== بررسی زمان داروها ====================
+// ==================== SYSTEM TIME VALIDATION ENGINES ====================
+// Periodic evaluation engine scanning for cross-matching active alerts criteria
 void checkAlarms() {
   DateTime now = rtc.now();
 
+  // Evaluates internal system state to prompt comprehensive daily metric cycle updates
   if (now.day() != lastResetDay) {
     lastResetDay = now.day();
     for (int i = 0; i < MED_COUNT; i++) meds[i].takenDoses = 0;
     if (currentScreen == SCREEN_MAIN) drawMainScreen();
   }
 
-  if (alarmMed != -1) return;          // آلارم در جریان است
+  if (alarmMed != -1) return;          // Bypass evaluations if a profile alert remains unhandled
   if (now.minute() == lastTrigMin) return;
 
   int h = now.hour(), m = now.minute();
@@ -700,15 +749,16 @@ void checkAlarms() {
     }
   }
 }
-// ==================== صفحه‌ی تنظیم ساعت ====================
-#define TS_HX 40    // باکس ساعت
-#define TS_MX 190   // باکس دقیقه
+
+// ==================== CHRONOLOGICAL SYSTEM CONFIG PANEL ====================
+#define TS_HX 40    // Hour component bounding box X position
+#define TS_MX 190   // Minute component bounding box X position
 #define TS_BY 70
 #define TS_BW 90
 #define TS_BH 90
 
+// Updates numeric digits with isolated graphic redraw passes to circumvent screen strobe artifacts
 void tsRefreshNumbers() {
-  // فقط ناحیه‌ی اعداد را پاک و دوباره رسم می‌کند (ضد چشمک)
   tft.fillRect(TS_HX + 8, TS_BY + 28, TS_BW - 16, 40, BLACK);
   tft.fillRect(TS_MX + 8, TS_BY + 28, TS_BW - 16, 40, BLACK);
 
@@ -723,6 +773,7 @@ void tsRefreshNumbers() {
   tft.print(tempMM);
 }
 
+// Constructs complete graphical canvas mapping parameters for RTC calibrations
 void drawTimeSetScreen() {
   tft.fillScreen(BLACK);
   tft.setTextSize(2);
@@ -730,27 +781,27 @@ void drawTimeSetScreen() {
   tft.setCursor(40, 10);
   tft.print("Set System Time");
 
-  // باکس ساعت و دقیقه
+  // Draw outlines for Hour and Minute display boxes
   tft.drawRoundRect(TS_HX, TS_BY, TS_BW, TS_BH, 6, WHITE);
   tft.drawRoundRect(TS_MX, TS_BY, TS_BW, TS_BH, 6, WHITE);
 
-  // دونقطه‌ی وسط
+  // Center flashing colon placeholder separator segment
   tft.setTextSize(4); tft.setTextColor(WHITE);
   tft.setCursor(152, TS_BY + 30); tft.print(":");
 
-  // دکمه‌های + (بالا) و - (پایین) برای ساعت
+  // Draw hour modification increment (+) and decrement (-) directional arrows
   tft.fillTriangle(TS_HX + 45, TS_BY - 25, TS_HX + 25, TS_BY - 5,
                    TS_HX + 65, TS_BY - 5, GREEN);
   tft.fillTriangle(TS_HX + 45, TS_BY + TS_BH + 25, TS_HX + 25, TS_BY + TS_BH + 5,
                    TS_HX + 65, TS_BY + TS_BH + 5, RED);
 
-  // دکمه‌های + و - برای دقیقه
+  // Draw minute modification increment (+) and decrement (-) directional arrows
   tft.fillTriangle(TS_MX + 45, TS_BY - 25, TS_MX + 25, TS_BY - 5,
                    TS_MX + 65, TS_BY - 5, GREEN);
   tft.fillTriangle(TS_MX + 45, TS_BY + TS_BH + 25, TS_MX + 25, TS_BY + TS_BH + 5,
                    TS_MX + 65, TS_BY + TS_BH + 5, RED);
 
-  // دکمه‌های SAVE / CANCEL
+  // Action execution links (SAVE / CANCEL control widgets)
   tft.fillRoundRect(20, 200, 130, 35, 5, GREEN);
   tft.setTextSize(2); tft.setTextColor(BLACK);
   tft.setCursor(45, 209); tft.print("SAVE");
@@ -762,33 +813,34 @@ void drawTimeSetScreen() {
   tsRefreshNumbers();
 }
 
+// Resolves interactions processed within hardware configuration menus
 void handleTimeSetScreen() {
   int tx, ty;
   if (!getTouchXY(tx, ty)) return;
 
-  // ناحیه‌ی ساعت
+  // Intercept Hour configuration control quadrants
   if (tx > TS_HX && tx < TS_HX + TS_BW) {
     if (ty < TS_BY)              { tempHH = (tempHH + 1) % 24; tsRefreshNumbers(); delay(120); return; }
     if (ty > TS_BY + TS_BH)      { tempHH = (tempHH == 0) ? 23 : tempHH - 1; tsRefreshNumbers(); delay(120); return; }
   }
-  // ناحیه‌ی دقیقه
+  // Intercept Minute configuration control quadrants
   if (tx > TS_MX && tx < TS_MX + TS_BW) {
     if (ty < TS_BY)              { tempMM = (tempMM + 1) % 60; tsRefreshNumbers(); delay(120); return; }
     if (ty > TS_BY + TS_BH)      { tempMM = (tempMM == 0) ? 59 : tempMM - 1; tsRefreshNumbers(); delay(120); return; }
   }
 
-  // SAVE
+  // SAVE logic: Commit modified timestamps directly down to the hardware RTC registry map
   if (ty > 200 && ty < 235 && tx > 20 && tx < 150) {
     DateTime now = rtc.now();
     rtc.adjust(DateTime(now.year(), now.month(), now.day(), tempHH, tempMM, 0));
-    lastClockMin = -1;          // ساعت کوچک دوباره رسم شود
+    lastClockMin = -1;          // Flag resetting to clear mini clock cache indices
     currentScreen = SCREEN_MAIN;
     drawMainScreen();
     delay(200);
     return;
   }
 
-  // CANCEL
+  // CANCEL logic: Revert system display layout state back into standard parameters
   if (ty > 200 && ty < 235 && tx > 170 && tx < 300) {
     currentScreen = SCREEN_MAIN;
     drawMainScreen();
@@ -797,39 +849,55 @@ void handleTimeSetScreen() {
   }
 }
 
-// ==================== Setup & Loop ====================
+// ==================== CORE FIRMWARE INITIALIZATION ====================
 void setup() {
   Serial.begin(9600);
   tft.reset();
-  tft.begin(0x9341);
-  tft.setRotation(1);
+  tft.begin(0x9341); // Initialize standard ILI9341 display driver register addresses
+  tft.setRotation(1); // Set system environment rendering layout perspective to Landscape mode
 
   Wire.begin();
   if (!rtc.begin()) Serial.println("RTC not found!");
+  
+  // Power loss fallback behavior validation check
   if (rtc.lostPower()) rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
 
   pinMode(BUZZER_PIN, OUTPUT);
   noTone(BUZZER_PIN);
 
-  loadMeds();
+  loadMeds(); // Recover profile properties states out of data structures
   lastResetDay = rtc.now().day();
 
   drawMainScreen();
 }
 
+// ==================== MAIN EXECUTION LOOP ====================
 void loop() {
   if (currentScreen == SCREEN_ALARM) {
-    handleAlarm();
+    handleAlarm(); // Route execution pathways to intercept high-priority alerts
   } else {
-    checkAlarms();
+    checkAlarms(); // Continuously parse scheduling attributes
     switch (currentScreen) {
-      case SCREEN_MAIN:     drawMiniClock(false); drawMiniDate(false); handleMainScreen();     break;
-      case SCREEN_MED:      handleMedScreen();      break;
-      case SCREEN_KEYBOARD: handleKeyboard();       break;
-      case SCREEN_SCHEDULE: handleScheduleScreen(); break;
-      case SCREEN_TIME_SET: handleTimeSetScreen();  break;
-      default: break;
+      case SCREEN_MAIN:     
+        drawMiniClock(false); 
+        drawMiniDate(false); 
+        handleMainScreen();    
+        break;
+      case SCREEN_MED:       
+        handleMedScreen();      
+        break;
+      case SCREEN_KEYBOARD: 
+        handleKeyboard();       
+        break;
+      case SCREEN_SCHEDULE: 
+        handleScheduleScreen(); 
+        break;
+      case SCREEN_TIME_SET: 
+        handleTimeSetScreen();  
+        break;
+      default: 
+        break;
     }
   }
-  delay(20);
+  delay(20); // Minor task-scheduling duty delay to optimize MCU loop iterations
 }
